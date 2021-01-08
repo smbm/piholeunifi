@@ -1,0 +1,259 @@
+---
+- hosts: all
+  gather_facts: yes
+
+  handlers:
+    - name: unlink resolv dot conf
+      file:
+        path: "/etc/resolv.conf"
+        state: absent
+      become: yes
+      notify: 
+        - recreate resolv.conf
+
+    - name: recreate resolv.conf
+      copy:
+        dest: "/etc/resolv.conf"
+        owner: root
+        group: root
+        content: |
+          nameserver 1.1.1.1
+      become: yes
+
+    - name: restart docker
+      systemd:
+        name: docker.service
+        state: restarted
+      become: yes
+
+    - name: set plugin containment
+      command: snap set certbot trust-plugin-with-root=ok
+      become: yes
+
+    - name: reload nginx
+      systemd:
+        name: nginx.service
+        state: reloaded
+      become: yes
+
+  tasks:
+    - name: Ping
+      ping:
+  
+    - name: Apt install deps
+      apt:
+        update_cache: yes
+        name:
+          - python3-pip
+          - apt-transport-https
+          - ca-certificates
+          - gnupg-agent
+          - curl
+          - software-properties-common
+          - nginx
+        state: present
+      become: yes
+
+    - name: Disable resolved
+      systemd:
+        name: systemd-resolved
+        state: stopped
+        enabled: no
+      become: yes
+      notify: 
+        - unlink resolv dot conf
+
+    - meta: flush_handlers
+
+    - name: Add hostname to hosts file
+      lineinfile:
+        path: /etc/hosts
+        line: 127.0.0.1 {{ ansible_facts['hostname'] }}
+      become: yes
+
+    - name: Install Docker GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+      become: yes
+
+    - name: Add Docker repo
+      apt_repository:
+        repo: deb [arch=arm64] https://download.docker.com/linux/ubuntu focal stable
+        filename: docker
+        state: present
+      become: yes
+        
+    - name: Install Docker
+      apt:
+        update_cache: yes
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+      become: yes
+
+    - name: Add tvetterlein to docker group
+      user:
+        name: tvetterlein
+        groups: docker
+        append: yes
+      become: yes
+
+    - name: create docker daemon.json
+      copy:
+        dest: "/etc/docker/daemon.json"
+        owner: root
+        group: root
+        content: |
+          {
+            "ipv6": true,
+            "fixed-cidr-v6": "{{ ipv6_prefix_for_docker }}:4aa::/64"
+          }
+      become: yes
+      notify:
+        - restart docker
+
+    - meta: flush_handlers
+
+    - name: Install certbot with option --classic
+      snap:
+        name:
+          - certbot
+        classic: yes
+        state: present
+      become: yes
+      notify: set plugin containment
+
+    - name: Install cloudflare plugin snap
+      snap:
+        name:
+          - certbot-dns-cloudflare
+        state: present
+      become: yes
+
+    - name: Symlink certbot
+      file:
+        src: /snap/bin/certbot
+        dest: /usr/bin/certbot
+        owner: root
+        group: root
+        state: link
+      become: yes
+
+    - name: create secrets dir
+      file:
+        dest: /home/tvetterlein/.secrets/certbot/
+        state: directory
+        owner: tvetterlein
+        group: tvetterlein
+    
+    - name: create certbot creds file
+      copy:
+        dest: "/home/tvetterlein/.secrets/certbot/cloudflare.ini"
+        owner: tvetterlein
+        group: tvetterlein
+        content: |
+          dns_cloudflare_api_token = {{ certbot_cloudflare_api_token }}
+        mode: '0700'
+  
+    - name: get abides wildcard cert
+      command: certbot certonly --dns-cloudflare --dns-cloudflare-credentials /home/tvetterlein/.secrets/certbot/cloudflare.ini --quiet --non-interactive --agree-tos --email {{ certbot_cloudflare_email }} -d *.{{ domain }}
+      become: yes
+      args:
+       creates: /etc/letsencrypt/live/{{ domain }}/fullchain.pem
+
+    - name: Install pip docker-compose
+      pip:
+        name:
+          docker-compose
+
+    - name: create pihole opt dir
+      file:
+        dest: /opt/pihole/
+        state: directory
+        owner: root
+        group: root
+      become: yes
+
+    - name: Copy docker compose file
+      template:
+        src: pihole-docker-compose.yml.j2
+        dest: /opt/pihole/docker-compose.yml
+        owner: root
+        group: root
+        mode: '0644'
+      become: yes
+
+    - name: docker compose up pihole
+      community.general.docker_compose:
+        project_src: /opt/pihole/
+        state: present
+
+    - name: unlink nginx default
+      file:
+        path: "/etc/nginx/sites-enabled/default"
+        state: absent
+      become: yes
+      notify: 
+        - reload nginx
+
+    - name: Copy pihole nginx conf file
+      template:
+        src: pihole-nginx-conf.j2
+        dest: /etc/nginx/sites-available/pihole
+        owner: root
+        group: root
+        mode: '0644'
+      become: yes
+
+    - name: Symlink pihole nginx conf
+      file:
+        src: /etc/nginx/sites-available/pihole
+        dest: /etc/nginx/sites-enabled/pihole
+        owner: root
+        group: root
+        state: link
+      become: yes
+      notify: reload nginx
+
+    - name: create unifi opt dir
+      file:
+        dest: /opt/unifi/
+        state: directory
+        owner: root
+        group: root
+      become: yes
+
+    - name: Copy docker compose file
+      template:
+        src: unifi-docker-compose.yml.j2
+        dest: /opt/unifi/docker-compose.yml
+        owner: root
+        group: root
+        mode: '0644'
+      become: yes
+
+    - name: docker compose up unifi
+      community.general.docker_compose:
+        project_src: /opt/unifi/
+        state: present
+
+    - name: Copy unifi nginx conf file
+      template:
+        src: unifi-nginx-conf.j2
+        dest: /etc/nginx/sites-available/unifi
+        owner: root
+        group: root
+        mode: '0644'
+      become: yes
+
+    - name: Symlink unifi nginx conf
+      file:
+        src: /etc/nginx/sites-available/unifi
+        dest: /etc/nginx/sites-enabled/unifi
+        owner: root
+        group: root
+        state: link
+      become: yes
+      notify: reload nginx
