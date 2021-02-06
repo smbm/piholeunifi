@@ -108,7 +108,7 @@
         content: |
           {
             "ipv6": true,
-            "fixed-cidr-v6": "{{ ipv6_prefix_for_docker }}:4aa::/64"
+            "fixed-cidr-v6": "{{ ipv6_prefix_for_docker }}:40ed::/64"
           }
       become: yes
       notify:
@@ -124,6 +124,8 @@
         state: present
       become: yes
       notify: set plugin containment
+
+    - meta: flush_handlers
 
     - name: Install cloudflare plugin snap
       snap:
@@ -189,6 +191,7 @@
       community.general.docker_compose:
         project_src: /opt/pihole/
         state: present
+      when: enable_pihole == 'yes'
 
     - name: unlink nginx default
       file:

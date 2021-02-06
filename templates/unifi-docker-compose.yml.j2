@@ -10,7 +10,7 @@ services:
       - db:/data/db
       - dbcfg:/data/configdb
   controller:
-    image: "jacobalberty/unifi:latest"
+    image: {{ unifi_image }}
     container_name: unifi_controller
     depends_on:
       - mongo
@@ -70,4 +70,4 @@ networks:
     ipam:
       config:
         - subnet: 10.54.54.0/24
-        - subnet: {{ ipv6_prefix_for_docker }}:44ff::/64
+        - subnet: {{ ipv6_prefix_for_docker }}:40ef::/64

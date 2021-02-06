@@ -1,8 +1,8 @@
 version: "2.1"
 services:
-  cloudflared:
+  cm_cloudflared:
     image: crazymax/cloudflared:latest
-    container_name: cloudflared
+    container_name: cm_cloudflared
     ports:
       - "5053:5053/udp"
     environment:
@@ -13,13 +13,30 @@ services:
       pihole4:
         ipv4_address: 10.53.53.53
       pihole6:
-        ipv6_address: {{ ipv6_prefix_for_docker }}:53ee::53
+        ipv6_address: {{ ipv6_prefix_for_docker }}:40ee::53
+    sysctls:
+        - net.ipv6.conf.all.disable_ipv6=0
+
+  vi_cloudflared:
+    image: visibilityspots/cloudflared:latest
+    container_name: vi_cloudflared
+    ports:
+      - "5054:5054/udp"
+    environment:
+      - DNS1=[2606:4700:4700::1111]
+      - DNS2=1.1.1.1
+    restart: unless-stopped
+    networks:
+      pihole4:
+        ipv4_address: 10.53.53.153
+      pihole6:
+        ipv6_address: {{ ipv6_prefix_for_docker }}:40ee::153
     sysctls:
         - net.ipv6.conf.all.disable_ipv6=0
 
   pihole:
     container_name: pihole
-    image: pihole/pihole:latest
+    image: {{ pihole_image }}
     hostname: piholeunifi1
     ports:
       - "53:53/tcp"
@@ -32,12 +49,12 @@ services:
       - ServerIP={{ global_ipv4 }}
       - ServerIPv6={{ global_ipv6 }}
       - DNS1='10.53.53.53#5053'
-      - DNS2='{{ ipv6_prefix_for_docker }}:53ee::53#5053'
+      - DNS2='10.53.53.153#5054'   
     networks:
         pihole4:
           ipv4_address: 10.53.53.80
         pihole6:
-          ipv6_address: {{ ipv6_prefix_for_docker }}:53ee::80
+          ipv6_address: {{ ipv6_prefix_for_docker }}:40ee::80
     # Volumes store your data between container upgrades
     volumes:
        - './etc-pihole/:/etc/pihole/'
@@ -58,4 +75,4 @@ networks:
     enable_ipv6: true
     ipam:
       config:
-        - subnet: {{ ipv6_prefix_for_docker }}:53ee::/64
+        - subnet: {{ ipv6_prefix_for_docker }}:40ee::/64

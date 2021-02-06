@@ -1,4 +1,6 @@
 ---
+enable_pihole: 'yes'
+
 global_ipv4: 192.168.10.10
 global_ipv6: 2a01::160
 
@@ -8,3 +10,6 @@ domain: domain.com
                               
 certbot_cloudflare_api_token: abcdefghijklmnopqrstuvwxyz1234567890ABCD
 certbot_cloudflare_email: someone@domain.com
+
+unifi_image: jacobalberty/unifi:6.0.45
+pihole_image: pihole/pihole:v5.6
